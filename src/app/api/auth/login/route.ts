@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { getPrisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { apiError } from "@/lib/api-helpers";
 
 // Rate limit sederhana per IP. Untuk multi-instance, pindahkan ke Redis/DB.
 const percobaan = new Map<string, { n: number; sampai: number }>();
@@ -29,33 +30,40 @@ export async function POST(req: Request) {
     );
   }
 
-  const { username, password } = await req.json();
-  if (!username || !password) {
-    return NextResponse.json({ error: "Username dan password wajib diisi" }, { status: 400 });
+  // Dibungkus try/catch: tanpa ini, error koneksi/tabel DB keluar sebagai
+  // halaman 500 tanpa field `error`, dan user cuma melihat pesan generik
+  // "Terjadi kesalahan di server" yang tidak bisa ditindaklanjuti.
+  try {
+    const { username, password } = await req.json();
+    if (!username || !password) {
+      return NextResponse.json({ error: "Username dan password wajib diisi" }, { status: 400 });
+    }
+
+    const user = await getPrisma().user.findFirst({
+      where: { username: String(username).toLowerCase().trim(), isActive: true },
+    });
+
+    // Pesan sengaja generik — jangan bocorkan mana yang salah.
+    const gagal = NextResponse.json({ error: "Username atau password salah" }, { status: 401 });
+
+    if (!user?.passwordHash) return gagal;
+    if (!(await bcrypt.compare(String(password), user.passwordHash))) return gagal;
+
+    const session = await getSession();
+    session.userId = user.id;
+    session.nama = user.nama;
+    session.email = user.email ?? undefined;
+    session.isLoggedIn = true;
+    await session.save();
+
+    await getPrisma().user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    percobaan.delete(ip);
+    return NextResponse.json({ ok: true, nama: user.nama, role: user.role });
+  } catch (error) {
+    return apiError(error);
   }
-
-  const user = await getPrisma().user.findFirst({
-    where: { username: String(username).toLowerCase().trim(), isActive: true },
-  });
-
-  // Pesan sengaja generik — jangan bocorkan mana yang salah.
-  const gagal = NextResponse.json({ error: "Username atau password salah" }, { status: 401 });
-
-  if (!user?.passwordHash) return gagal;
-  if (!(await bcrypt.compare(String(password), user.passwordHash))) return gagal;
-
-  const session = await getSession();
-  session.userId = user.id;
-  session.nama = user.nama;
-  session.email = user.email ?? undefined;
-  session.isLoggedIn = true;
-  await session.save();
-
-  await getPrisma().user.update({
-    where: { id: user.id },
-    data: { lastLoginAt: new Date() },
-  });
-
-  percobaan.delete(ip);
-  return NextResponse.json({ ok: true, nama: user.nama, role: user.role });
 }
