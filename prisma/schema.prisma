@@ -1,0 +1,524 @@
+// Toko Jam Bekas — schema sesuai PRD-toko-jam-bekas.md
+// Konvensi: id cuid(), createdAt, updatedAt di setiap model.
+// Uang: Decimal(15,2) — JANGAN Float. Ditampilkan tanpa desimal (Rp 1.000.000).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enum
+// ---------------------------------------------------------------------------
+
+enum Role {
+  OWNER
+  ADMIN
+  STAFF
+  VIEWER
+}
+
+/// Alur: MASUK_QC -> (SERVICE -> MASUK_QC)* -> READY -> TERJUAL
+/// RUSAK bisa dituju dari MASUK_QC / SERVICE / READY (write-off).
+enum StatusUnit {
+  MASUK_QC
+  SERVICE
+  READY
+  TERJUAL
+  RUSAK
+}
+
+enum GradeUnit {
+  A
+  B
+  C
+}
+
+enum HasilQc {
+  LOLOS
+  GAGAL
+}
+
+enum StatusService {
+  PROSES
+  SELESAI
+}
+
+enum JenisKomponen {
+  BATRE
+  STRAP
+  KACA
+  MESIN
+  LAINNYA
+}
+
+enum TipePembeli {
+  B2B
+  B2C
+}
+
+enum ChannelJual {
+  OFFLINE
+  WA_SOSMED
+}
+
+enum PenanggungOngkir {
+  PEMBELI
+  TOKO
+}
+
+enum MetodeBayar {
+  CASH
+  PIUTANG
+}
+
+enum StatusBayar {
+  LUNAS
+  SEBAGIAN
+  BELUM_LUNAS
+}
+
+enum JenisLedger {
+  MASUK_BELI
+  MASUK_QC_LOLOS
+  KELUAR_SERVICE
+  MASUK_SERVICE_SELESAI
+  KELUAR_JUAL
+  KELUAR_RUSAK
+}
+
+enum ArahKas {
+  MASUK
+  KELUAR
+}
+
+/// Jenis mutasi kas. Yang bertanda (otomatis) dibuat sistem sebagai efek
+/// samping transaksi bisnis — tidak bisa diinput atau dihapus manual.
+enum JenisKas {
+  MODAL_MASUK // manual  — setor modal ke bisnis
+  PRIVE // manual  — tarik uang untuk keperluan pribadi
+  LAINNYA_MASUK // manual  — pemasukan lain di luar penjualan
+  LAINNYA_KELUAR // manual  — pengeluaran lain
+  PENYESUAIAN_MASUK // manual  — koreksi selisih hitung kas
+  PENYESUAIAN_KELUAR // manual  — koreksi selisih hitung kas
+  BELI_UNIT // otomatis — pembelian jam
+  BIAYA_SERVICE // otomatis — komponen service yang dibeli langsung
+  BELI_SPAREPART // otomatis — pengisian stok sparepart
+  PENJUALAN // otomatis — uang diterima saat nota dibuat (cash / DP)
+  PELUNASAN_PIUTANG // otomatis — cicilan atau pelunasan
+  ONGKIR_TOKO // otomatis — ongkir yang ditanggung toko
+  BIAYA_OPERASIONAL // otomatis — dari modul Biaya Operasional
+}
+
+enum KategoriBiaya {
+  SEWA
+  GAJI
+  LISTRIK
+  AIR
+  INTERNET
+  TRANSPORT
+  PERLENGKAPAN
+  PEMASARAN
+  PAJAK_RETRIBUSI
+  LAINNYA
+}
+
+enum JenisMutasiSparepart {
+  MASUK_BELI // pengisian stok
+  KELUAR_PAKAI // dipakai pada service sebuah unit
+  PENYESUAIAN_TAMBAH // koreksi stok opname — lebih
+  PENYESUAIAN_KURANG // koreksi stok opname — susut/rusak/hilang
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String    @id @default(cuid())
+  nama         String
+  username     String?   @unique
+  passwordHash String?
+  email        String?   @unique
+  googleSub    String?   @unique
+  fotoUrl      String?
+  role         Role      @default(STAFF)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  auditLogs AuditLog[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  aksi      String // CREATE / UPDATE / DELETE / LOGIN / EXPORT
+  entitas   String
+  entitasId String?
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([entitas, entitasId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+/// Penomoran berurutan yang aman dari balapan (kode unit & nomor nota).
+/// kunci contoh: "UNIT:SEIKO", "NOTA:202608"
+model Counter {
+  kunci     String   @id
+  nilai     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("counters")
+}
+
+// ---------------------------------------------------------------------------
+// Inti — Unit jam (serialized, 1 record = 1 jam fisik)
+// ---------------------------------------------------------------------------
+
+model Unit {
+  id       String @id @default(cuid())
+  kodeUnit String @unique // SEIKO-001
+  brand    String
+  model    String
+
+  hargaBeli         Decimal  @db.Decimal(15, 2)
+  totalBiayaService Decimal  @default(0) @db.Decimal(15, 2)
+  /// hpp = hargaBeli + totalBiayaService (dihitung ulang oleh service layer)
+  hpp               Decimal  @db.Decimal(15, 2)
+  hargaJual         Decimal? @db.Decimal(15, 2)
+
+  status StatusUnit @default(MASUK_QC)
+  grade  GradeUnit?
+
+  // Kelengkapan
+  adaBox        Boolean @default(false)
+  adaSurat      Boolean @default(false)
+  adaBuku       Boolean @default(false)
+  adaExtraLink  Boolean @default(false)
+  adaSertifikat Boolean @default(false)
+
+  catatanKondisi String?
+  catatan        String?
+
+  tglBeli DateTime
+  /// Diisi saat QC LOLOS — dasar perhitungan umur stok (aging)
+  tglMasukInventory DateTime?
+  /// Diisi saat TERJUAL atau RUSAK
+  tglKeluar         DateTime?
+
+  alasanRusak String?
+  /// Untuk undo write-off: status sebelum dipindah ke RUSAK
+  statusSebelumRusak StatusUnit?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  qcRecords     QcRecord[]
+  services      Service[]
+  ledger        StokLedger[]
+  penjualanItem PenjualanItem?
+
+  @@index([status])
+  @@index([brand])
+  @@index([tglMasukInventory])
+  @@index([tglKeluar])
+  @@map("units")
+}
+
+model QcRecord {
+  id          String   @id @default(cuid())
+  unitId      String
+  hasil       HasilQc
+  keterangan  String?
+  tanggal     DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([unitId])
+  @@map("qc_records")
+}
+
+model Service {
+  id         String        @id @default(cuid())
+  unitId     String
+  totalBiaya Decimal       @default(0) @db.Decimal(15, 2)
+  status     StatusService @default(PROSES)
+  catatan    String?
+  tglMasuk   DateTime      @default(now())
+  tglSelesai DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  unit  Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  items ServiceItem[]
+
+  @@index([unitId])
+  @@index([status])
+  @@map("services")
+}
+
+model ServiceItem {
+  id        String        @id @default(cuid())
+  serviceId String
+  jenis     JenisKomponen
+  deskripsi String?
+  biaya     Decimal       @db.Decimal(15, 2)
+
+  /// Diisi kalau komponennya diambil dari stok sparepart.
+  /// Kalau null, berarti dibeli langsung / jasa tukang — dan uangnya
+  /// keluar dari kas saat itu juga.
+  sparepartId String?
+  qty         Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  service   Service    @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  sparepart Sparepart? @relation(fields: [sparepartId], references: [id])
+
+  @@index([serviceId])
+  @@index([sparepartId])
+  @@map("service_items")
+}
+
+// ---------------------------------------------------------------------------
+// Penjualan
+// ---------------------------------------------------------------------------
+
+model Mitra {
+  id        String   @id @default(cuid())
+  nama      String
+  kontak    String?
+  kota      String?
+  catatan   String?
+  aktif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  penjualan Penjualan[]
+
+  @@index([nama])
+  @@map("mitra")
+}
+
+model Penjualan {
+  id      String   @id @default(cuid())
+  noNota  String   @unique // INV-202608-001
+  tanggal DateTime
+
+  tipePembeli TipePembeli
+  mitraId     String?
+  namaPembeli String?
+  channel     ChannelJual @default(OFFLINE)
+
+  /// Total harga jual semua unit di nota ini — inilah Omzet
+  subtotal         Decimal          @db.Decimal(15, 2)
+  ongkir           Decimal          @default(0) @db.Decimal(15, 2)
+  penanggungOngkir PenanggungOngkir @default(PEMBELI)
+
+  /// subtotal + ongkir (kalau ditanggung PEMBELI); ongkir TOKO tidak ditagih
+  totalTagihan Decimal     @db.Decimal(15, 2)
+  totalDibayar Decimal     @default(0) @db.Decimal(15, 2)
+  metodeBayar  MetodeBayar @default(CASH)
+  statusBayar  StatusBayar @default(LUNAS)
+  jatuhTempo   DateTime?
+
+  catatan   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mitra       Mitra?          @relation(fields: [mitraId], references: [id])
+  items       PenjualanItem[]
+  pembayaran  Pembayaran[]
+
+  @@index([tanggal])
+  @@index([statusBayar])
+  @@index([tipePembeli])
+  @@index([mitraId])
+  @@map("penjualan")
+}
+
+model PenjualanItem {
+  id          String @id @default(cuid())
+  penjualanId String
+  /// 1 unit hanya boleh terjual sekali
+  unitId      String @unique
+
+  hargaJual Decimal @db.Decimal(15, 2)
+  /// Snapshot HPP saat transaksi — laporan historis tidak berubah walau data unit disentuh
+  hppSaatJual Decimal @db.Decimal(15, 2)
+  /// Snapshot komponen HPP, supaya L/R bisa memisah modal vs biaya service
+  hargaBeliSaatJual   Decimal @db.Decimal(15, 2)
+  biayaServiceSaatJual Decimal @db.Decimal(15, 2)
+  laba                Decimal @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  penjualan Penjualan @relation(fields: [penjualanId], references: [id], onDelete: Cascade)
+  unit      Unit      @relation(fields: [unitId], references: [id])
+
+  @@index([penjualanId])
+  @@map("penjualan_items")
+}
+
+model Pembayaran {
+  id          String   @id @default(cuid())
+  penjualanId String
+  jumlah      Decimal  @db.Decimal(15, 2)
+  tanggal     DateTime
+  catatan     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  penjualan Penjualan @relation(fields: [penjualanId], references: [id], onDelete: Cascade)
+
+  @@index([penjualanId])
+  @@index([tanggal])
+  @@map("pembayaran")
+}
+
+// ---------------------------------------------------------------------------
+// Stok Ledger — dibuat OTOMATIS oleh service layer, tidak pernah diinput manual
+// ---------------------------------------------------------------------------
+
+model StokLedger {
+  id          String      @id @default(cuid())
+  unitId      String
+  jenis       JenisLedger
+  /// +1 masuk stok, -1 keluar stok, 0 perpindahan internal (service/QC)
+  qty         Int
+  referensiId String?
+  keterangan  String?
+  tanggal     DateTime    @default(now())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([unitId])
+  @@index([tanggal])
+  @@index([jenis])
+  @@map("stok_ledger")
+}
+
+// ---------------------------------------------------------------------------
+// Kas — buku kas tunggal. Baris bertanda `otomatis` dibuat service layer
+// sebagai efek samping transaksi bisnis dan tidak bisa disunting manual.
+// ---------------------------------------------------------------------------
+
+model KasEntry {
+  id      String   @id @default(cuid())
+  tanggal DateTime
+  jenis   JenisKas
+  arah    ArahKas
+  jumlah  Decimal  @db.Decimal(15, 2)
+
+  keterangan String?
+  /// Nama entitas asal, mis. "Unit", "Penjualan", "BiayaOperasional"
+  referensiTipe String?
+  referensiId   String?
+  /// true = dibuat sistem, tidak bisa dihapus dari layar
+  otomatis      Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tanggal])
+  @@index([jenis])
+  @@index([referensiTipe, referensiId])
+  @@map("kas_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Biaya operasional toko — beban periode, bukan beban barang.
+// ---------------------------------------------------------------------------
+
+model BiayaOperasional {
+  id        String        @id @default(cuid())
+  tanggal   DateTime
+  kategori  KategoriBiaya
+  deskripsi String
+  jumlah    Decimal       @db.Decimal(15, 2)
+  catatan   String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([tanggal])
+  @@index([kategori])
+  @@map("biaya_operasional")
+}
+
+// ---------------------------------------------------------------------------
+// Stok sparepart — persediaan batre, strap, kaca, mesin, dll.
+// ---------------------------------------------------------------------------
+
+model Sparepart {
+  id    String        @id @default(cuid())
+  kode  String        @unique
+  nama  String
+  jenis JenisKomponen
+
+  satuan String @default("pcs")
+  /// Stok berjalan, dihitung ulang oleh service layer setiap ada mutasi
+  stok   Int    @default(0)
+  /// Harga pokok rata-rata bergerak (moving average)
+  hargaRata Decimal @default(0) @db.Decimal(15, 2)
+  /// Ambang peringatan stok menipis. 0 = tidak diperingatkan.
+  minStok   Int     @default(0)
+
+  aktif     Boolean  @default(true)
+  catatan   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mutasi       MutasiSparepart[]
+  serviceItems ServiceItem[]
+
+  @@index([jenis])
+  @@index([nama])
+  @@map("spareparts")
+}
+
+model MutasiSparepart {
+  id          String               @id @default(cuid())
+  sparepartId String
+  jenis       JenisMutasiSparepart
+  /// Selalu positif. Arah masuk/keluar ditentukan oleh `jenis`.
+  qty         Int
+  /// Harga per satuan saat mutasi terjadi
+  hargaSatuan Decimal              @db.Decimal(15, 2)
+  total       Decimal              @db.Decimal(15, 2)
+  /// Sisa stok setelah mutasi ini — memudahkan penelusuran
+  stokSesudah Int
+
+  keterangan String?
+  /// Untuk KELUAR_PAKAI: id ServiceItem yang memakainya
+  referensiId String?
+  tanggal     DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sparepart Sparepart @relation(fields: [sparepartId], references: [id], onDelete: Cascade)
+
+  @@index([sparepartId])
+  @@index([tanggal])
+  @@index([jenis])
+  @@map("mutasi_sparepart")
+}
