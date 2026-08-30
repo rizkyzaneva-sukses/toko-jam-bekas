@@ -12,20 +12,19 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # DATABASE_URL palsu supaya prisma generate jalan saat build.
 # Nilai aslinya diinjeksi saat runtime oleh EasyPanel.
-ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
+ENV DATABASE_URL="postgresql://build:***@localhost:5432/build"
 ENV NEXT_TELEMETRY_DISABLED=1
 # `npm run build` sudah memanggil `prisma generate` lebih dulu.
 RUN npm run build
 
 # Kumpulkan CLI prisma + seluruh dependensinya ke satu folder, supaya
 # `npx prisma migrate deploy` bisa dijalankan dari terminal container tanpa
-# ikut membawa node_modules penuh. Studio & prisma dev (±60 MB) dibuang.
+# ikut membawa node_modules penuh.
 RUN <<'EOF' node
 const fs = require("fs");
 const path = require("path");
 const root = "/app/node_modules";
 const out = "/app/cli-modules";
-const skip = new Set(["@prisma/studio-core", "@prisma/dev"]);
 const seen = new Set();
 const manifest = (name) => {
   try {
@@ -35,19 +34,19 @@ const manifest = (name) => {
   }
 };
 const walk = (name) => {
-  if (seen.has(name) || skip.has(name)) return;
+  if (seen.has(name)) return;
   const pkg = manifest(name);
   if (!pkg) return;
   seen.add(name);
   const deps = { ...pkg.dependencies, ...pkg.optionalDependencies };
   Object.keys(deps).forEach(walk);
 };
-// dotenv dipakai oleh prisma.config.ts.
-["prisma", "dotenv"].forEach(walk);
+// prisma CLI + seed deps (dotenv, tsx, bcryptjs, pg adapter, pg)
+["prisma", "dotenv", "tsx", "bcryptjs", "@prisma/adapter-pg", "pg"].forEach(walk);
 for (const name of seen) {
   fs.cpSync(path.join(root, name), path.join(out, name), { recursive: true, dereference: true });
 }
-console.log(`prisma cli: ${seen.size} paket disalin`);
+console.log(`prisma cli + seed: ${seen.size} paket disalin`);
 EOF
 
 FROM node:22-alpine AS runner
@@ -68,9 +67,14 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/cli-modules ./node_modules
 RUN mkdir -p node_modules/.bin \
     && chmod +x node_modules/prisma/build/index.js \
-    && ln -sf ../prisma/build/index.js node_modules/.bin/prisma
+    && ln -sf ../prisma/build/index.js node_modules/.bin/prisma \
+    && ln -sf ../tsx/dist/cli.mjs node_modules/.bin/tsx 2>/dev/null || true
+
+# Entrypoint: migrate → seed → start
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000 HOSTNAME=0.0.0.0
-CMD ["node", "server.js"]
+CMD ["/app/entrypoint.sh"]
