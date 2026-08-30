@@ -97,6 +97,7 @@ export function SearchableSelect(props: SingleProps | MultiProps) {
             type="button"
             disabled={disabled}
             aria-label={label ?? placeholder}
+            data-testid="select-trigger"
             className={cn(
               "flex min-h-[42px] w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors",
               "border-gray-300 bg-white text-gray-900",
@@ -182,6 +183,8 @@ export function SearchableSelect(props: SingleProps | MultiProps) {
                       value={`${o.label} ${o.hint ?? ""} ${o.value}`}
                       disabled={o.disabled}
                       onSelect={() => handleSelect(o.value)}
+                      onClick={() => handleSelect(o.value)}
+                      data-testid={`select-option-${o.value}`}
                       className={cn(
                         "flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm",
                         "text-gray-900 dark:text-gray-50",
