@@ -28,21 +28,24 @@ New Service → **App** → Source: GitHub → pilih repo
 | `NODE_ENV` | `production` |
 | `NEXT_PUBLIC_APP_NAME` | `Jam Bekas Ops` |
 | `APP_BASE_URL` | URL app setelah domain dipasang |
-| `SEED_ADMIN_PASSWORD` | opsional, kosong = `admin123` |
 
-## 4. Migrasi (sekali saja)
-Setelah container jalan, buka Terminal service app:
+`SEED_ADMIN_PASSWORD` tidak dipakai lagi - akun owner dibuat lewat halaman login
+(langkah 6).
 
-```bash
-./node_modules/.bin/prisma migrate deploy
-```
+## 4. Migrasi (otomatis)
+Tidak ada yang perlu dijalankan manual. `entrypoint.sh` menjalankan
+`prisma migrate deploy` setiap container start, sebelum server Next.js naik.
+Perintah itu hanya menerapkan file di `prisma/migrations` dan tidak pernah
+menghapus kolom atau tabel.
 
-Folder `prisma/migrations` sudah ikut di repo, jadi perintah ini langsung membentuk
-seluruh tabel.
+Kalau database belum siap menerima koneksi, entrypoint mencoba ulang sampai 5x
+dengan jeda 3 detik. Setelah itu container berhenti dengan pesan yang jelas di
+Logs - artinya `DATABASE_URL` atau service database yang bermasalah, bukan
+migrasinya.
 
-> **Tidak perlu menjalankan `npm run db:seed` di container.** Image produksi memakai
-> Next.js standalone, jadi `tsx` tidak tersedia di dalamnya. Akun owner dibuat lewat
-> halaman login (langkah 6).
+> **Jangan pakai `prisma db push` di produksi.** Perintah itu menyamakan schema
+> secara paksa; dengan `--accept-data-loss` kolom yang tidak cocok ikut dibuang
+> tanpa konfirmasi. Yang benar `migrate deploy`, dan itu sudah otomatis.
 
 ## 5. Domain
 EasyPanel → Domains → arahkan subdomain pilihan Anda ke port 3000.
@@ -59,7 +62,7 @@ Karena itu: **buat akunnya segera setelah domain aktif**, jangan dibiarkan menga
 
 ## Update berikutnya
 Push ke GitHub → EasyPanel → Deploy.
-Kalau schema berubah, jalankan lagi `./node_modules/.bin/prisma migrate deploy`.
+Kalau schema berubah, migrasinya ikut jalan sendiri saat container start.
 
 ## Kalau bermasalah
 

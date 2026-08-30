@@ -12,14 +12,17 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # DATABASE_URL palsu supaya prisma generate jalan saat build.
 # Nilai aslinya diinjeksi saat runtime oleh EasyPanel.
-ENV DATABASE_URL="postgresql://build:***@localhost:5432/build"
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 ENV NEXT_TELEMETRY_DISABLED=1
 # `npm run build` sudah memanggil `prisma generate` lebih dulu.
 RUN npm run build
 
-# Kumpulkan CLI prisma + seluruh dependensinya ke satu folder, supaya
-# `npx prisma migrate deploy` bisa dijalankan dari terminal container tanpa
-# ikut membawa node_modules penuh.
+# Kumpulkan CLI prisma + seluruh dependensinya ke satu folder, supaya migrasi
+# bisa dijalankan tanpa ikut membawa node_modules penuh.
+#
+# JANGAN buang @prisma/studio-core dan @prisma/dev walau kelihatannya cuma
+# dipakai `prisma studio`: prisma/build/cli.js me-require keduanya di level
+# modul, jadi tanpa itu SEMUA perintah prisma gagal - termasuk migrate deploy.
 RUN <<'EOF' node
 const fs = require("fs");
 const path = require("path");
@@ -41,12 +44,12 @@ const walk = (name) => {
   const deps = { ...pkg.dependencies, ...pkg.optionalDependencies };
   Object.keys(deps).forEach(walk);
 };
-// prisma CLI + seed deps (dotenv, tsx, bcryptjs, pg adapter, pg)
-["prisma", "dotenv", "tsx", "bcryptjs", "@prisma/adapter-pg", "pg"].forEach(walk);
+// dotenv dipakai oleh prisma.config.ts.
+["prisma", "dotenv"].forEach(walk);
 for (const name of seen) {
   fs.cpSync(path.join(root, name), path.join(out, name), { recursive: true, dereference: true });
 }
-console.log(`prisma cli + seed: ${seen.size} paket disalin`);
+console.log(`prisma cli: ${seen.size} paket disalin`);
 EOF
 
 FROM node:22-alpine AS runner
@@ -59,20 +62,20 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
-# Disertakan supaya `npx prisma migrate deploy` bisa dijalankan dari terminal
-# container. prisma.config.ts wajib ikut: schema.prisma tidak memuat url,
-# datasource-nya dibaca dari sana.
+# Dipakai entrypoint (dan kalau perlu dari terminal container) untuk migrasi.
+# prisma.config.ts wajib ikut: schema.prisma tidak memuat url, datasource-nya
+# dibaca dari sana.
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/cli-modules ./node_modules
 RUN mkdir -p node_modules/.bin \
     && chmod +x node_modules/prisma/build/index.js \
-    && ln -sf ../prisma/build/index.js node_modules/.bin/prisma \
-    && ln -sf ../tsx/dist/cli.mjs node_modules/.bin/tsx 2>/dev/null || true
+    && ln -sf ../prisma/build/index.js node_modules/.bin/prisma
 
-# Entrypoint: migrate → seed → start
+# Entrypoint: migrate deploy lalu start server. sed membuang CR kalau file
+# ini ter-checkout dengan line ending Windows (shebang bermasalah).
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 USER nextjs
 EXPOSE 3000
