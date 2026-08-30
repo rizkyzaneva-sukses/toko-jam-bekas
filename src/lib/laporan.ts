@@ -354,7 +354,7 @@ export async function ringkasanDashboard(bulan: string): Promise<RingkasanDashbo
   }
   const awalTren = rentangBulanWIB(bulanTren[0]).dari;
 
-  const [notaTren, rusakTren, biayaTren] = await Promise.all([
+  const [notaTren, rusakTren, biayaTren, rugiSpTren] = await Promise.all([
     prisma.penjualan.findMany({
       where: { tanggal: { gte: awalTren, lt: sampai } },
       select: {
@@ -371,6 +371,10 @@ export async function ringkasanDashboard(bulan: string): Promise<RingkasanDashbo
     prisma.biayaOperasional.findMany({
       where: { tanggal: { gte: awalTren, lt: sampai } },
       select: { tanggal: true, jumlah: true },
+    }),
+    prisma.mutasiSparepart.findMany({
+      where: { jenis: "PENYESUAIAN_KURANG", tanggal: { gte: awalTren, lt: sampai } },
+      select: { tanggal: true, total: true },
     }),
   ]);
 
@@ -401,6 +405,10 @@ export async function ringkasanDashboard(bulan: string): Promise<RingkasanDashbo
   for (const b of biayaTren) {
     const e = emberTren.get(kunciBulan(b.tanggal));
     if (e) e.laba -= toNumber(b.jumlah);
+  }
+  for (const sp of rugiSpTren) {
+    const e = emberTren.get(kunciBulan(sp.tanggal));
+    if (e) e.laba -= toNumber(sp.total);
   }
 
   return {
