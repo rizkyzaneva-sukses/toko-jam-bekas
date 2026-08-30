@@ -27,7 +27,7 @@ export const POST = withRole(["OWNER"], async (_req, user) => {
 
     // 2. Hapus service & QC
     const serviceItems = await tx.serviceItem.deleteMany();
-    const services = await tx.services.deleteMany();
+    const services = await tx.service.deleteMany();
     const qcRecords = await tx.qcRecord.deleteMany();
 
     // 3. Hapus stok ledger & mutasi sparepart
