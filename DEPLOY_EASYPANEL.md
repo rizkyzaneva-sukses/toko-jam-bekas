@@ -34,7 +34,7 @@ New Service → **App** → Source: GitHub → pilih repo
 Setelah container jalan, buka Terminal service app:
 
 ```bash
-npx prisma migrate deploy
+./node_modules/.bin/prisma migrate deploy
 ```
 
 Folder `prisma/migrations` sudah ikut di repo, jadi perintah ini langsung membentuk
@@ -59,7 +59,7 @@ Karena itu: **buat akunnya segera setelah domain aktif**, jangan dibiarkan menga
 
 ## Update berikutnya
 Push ke GitHub → EasyPanel → Deploy.
-Kalau schema berubah, jalankan lagi `npx prisma migrate deploy`.
+Kalau schema berubah, jalankan lagi `./node_modules/.bin/prisma migrate deploy`.
 
 ## Kalau bermasalah
 
@@ -67,6 +67,6 @@ Kalau schema berubah, jalankan lagi `npx prisma migrate deploy`.
 |---|---|
 | Build gagal di `prisma generate` | Blok `generator` di `schema.prisma` |
 | Runtime error koneksi DB | `DATABASE_URL` pakai host internal? |
-| Login gagal terus | Sudah jalan `npm run db:seed`? |
+| Login gagal terus | Akun owner sudah dibuat lewat form di halaman login (langkah 6)? |
 | Halaman blank | Cek log container, biasanya env kurang |
 | `SESSION_SECRET wajib diisi` | Env belum diisi minimal 32 karakter |
