@@ -18,6 +18,7 @@ import {
   Receipt,
   ReceiptText,
   ScrollText,
+  Settings,
   ShoppingCart,
   Store,
   TrendingUp,
@@ -80,6 +81,12 @@ const MENU: { grup: string; item: ItemMenu[] }[] = [
     item: [
       { href: "/panduan", label: "Panduan", icon: BookOpen },
       { href: "/study-case", label: "Study Case", icon: GraduationCap },
+    ],
+  },
+  {
+    grup: "Owner",
+    item: [
+      { href: "/pengaturan", label: "Pengaturan", icon: Settings },
     ],
   },
 ];
