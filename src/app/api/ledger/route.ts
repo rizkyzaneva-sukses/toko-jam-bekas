@@ -21,9 +21,9 @@ export const GET = withAuth(async (req) => {
   if (q) {
     where.unit = {
       OR: [
-        { kodeUnit: { contains: q, mode: "insensitive" } },
-        { brand: { contains: q, mode: "insensitive" } },
-        { model: { contains: q, mode: "insensitive" } },
+        { kodeUnit: { contains: q } },
+        { brand: { contains: q } },
+        { model: { contains: q } },
       ],
     };
   }
