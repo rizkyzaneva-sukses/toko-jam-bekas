@@ -1,15 +1,16 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Check, Minus } from "lucide-react";
+import { ArrowLeft, Check, Minus, Pencil } from "lucide-react";
 import { api } from "@/lib/api-client";
 import type { UnitDetail } from "@/lib/tipe";
 import { LABEL_KOMPONEN, LABEL_LEDGER } from "@/lib/tipe";
 import { formatRupiah, formatTanggal, formatTanggalJam } from "@/lib/utils";
 import { ModalRusak } from "@/components/modal-rusak";
+import { ModalEditUnit } from "@/components/modal-edit-unit";
 import {
   Badge,
   BadgeStatus,
@@ -28,6 +29,7 @@ import {
 export default function HalamanDetailUnit() {
   const params = useParams<{ id: string }>();
   const [rusakUntuk, setRusakUntuk] = React.useState<UnitDetail | null>(null);
+  const [editUntuk, setEditUntuk] = React.useState<UnitDetail | null>(null);
 
   const { data: u, isLoading, error, refetch } = useQuery({
     queryKey: ["unit", params.id],
@@ -69,6 +71,13 @@ export default function HalamanDetailUnit() {
         deskripsi={`Dibeli ${formatTanggal(u.tglBeli)}${u.grade ? ` · Grade ${u.grade}` : ""}`}
         aksi={
           <div className="flex items-center gap-2">
+            <Button
+              varian="secondary"
+              onClick={() => setEditUntuk(u)}
+              title={`Edit ${u.kodeUnit}`}
+            >
+              <Pencil className="h-4 w-4 mr-1.5" /> Edit Unit
+            </Button>
             <BadgeStatus status={u.status} />
             {["MASUK_QC", "SERVICE", "READY"].includes(u.status) && (
               <Button varian="danger" onClick={() => setRusakUntuk(u)}>
@@ -104,7 +113,7 @@ export default function HalamanDetailUnit() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+﻿      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Kondisi & kelengkapan */}
         <Card>
           <h2 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-50">
@@ -307,6 +316,7 @@ export default function HalamanDetailUnit() {
       </div>
 
       <ModalRusak unit={rusakUntuk} onClose={() => setRusakUntuk(null)} />
+      <ModalEditUnit unit={editUntuk} open={!!editUntuk} onClose={() => setEditUntuk(null)} />
     </>
   );
 }

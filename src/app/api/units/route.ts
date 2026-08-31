@@ -79,6 +79,12 @@ export const GET = withAuth(async (req) => {
           : null,
       alasanRusak: u.alasanRusak,
       catatan: u.catatan,
+      catatanKondisi: u.catatanKondisi,
+      adaBox: u.adaBox,
+      adaSurat: u.adaSurat,
+      adaBuku: u.adaBuku,
+      adaExtraLink: u.adaExtraLink,
+      adaSertifikat: u.adaSertifikat,
     };
   });
 

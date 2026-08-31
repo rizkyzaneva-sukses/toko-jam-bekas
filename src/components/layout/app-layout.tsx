@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   GraduationCap,
   HandCoins,
+  History,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -74,6 +75,7 @@ const MENU: { grup: string; item: ItemMenu[] }[] = [
     item: [
       { href: "/rusak", label: "Barang Rusak", icon: BadgeAlert },
       { href: "/ledger", label: "Stok Ledger", icon: ScrollText },
+      { href: "/log", label: "Log Aktivitas", icon: History },
     ],
   },
   {
@@ -93,7 +95,6 @@ function aktif(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(href + "/");
 }
-
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();

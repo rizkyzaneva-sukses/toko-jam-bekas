@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getPrisma } from "@/lib/prisma";
 import { catatAudit, KesalahanBisnis, withAuth } from "@/lib/api-helpers";
-import { hapusUnit } from "@/lib/unit";
+import { editUnit, hapusUnit } from "@/lib/unit";
 import { namaUnitDariItems } from "@/lib/nama-unit";
 import { selisihHari, toNumber } from "@/lib/utils";
 import type { UnitDetail } from "@/lib/tipe";
@@ -38,7 +39,7 @@ export const GET = withAuth<Ctx>(async (_req, _user, ctx) => {
   const hpp = toNumber(u.hpp);
   const hargaJual = toNumber(u.hargaJual);
 
-  // Riwayat service urut waktu — sumber imbuhan nama unit
+  // Riwayat service urut waktu --- sumber imbuhan nama unit
   const itemUrut = [...u.services]
     .sort((a, b) => a.tglMasuk.getTime() - b.tglMasuk.getTime())
     .flatMap((sv) => sv.items);
@@ -116,6 +117,36 @@ export const GET = withAuth<Ctx>(async (_req, _user, ctx) => {
   };
 
   return NextResponse.json(detail);
+});
+
+const skemaEdit = z.object({
+  brand: z.string().min(1, "Brand wajib diisi").optional(),
+  model: z.string().min(1, "Model wajib diisi").optional(),
+  tglBeli: z.string().transform((v) => new Date(v)).optional(),
+  hargaBeli: z.number().positive("Harga beli harus lebih dari Rp 0").optional(),
+  hargaJual: z.number().nullable().optional(),
+  grade: z.enum(["A", "B", "C"]).nullable().optional(),
+  catatan: z.string().nullable().optional(),
+  catatanKondisi: z.string().nullable().optional(),
+  adaBox: z.boolean().optional(),
+  adaSurat: z.boolean().optional(),
+  adaBuku: z.boolean().optional(),
+  adaExtraLink: z.boolean().optional(),
+  adaSertifikat: z.boolean().optional(),
+});
+
+export const PATCH = withAuth<Ctx>(async (req, user, ctx) => {
+  const { id } = await ctx.params;
+  const body = skemaEdit.parse(await req.json());
+
+  const unit = await editUnit(id, body);
+  await catatAudit(user.id, "UPDATE", "Unit", id, {
+    kodeUnit: unit.kodeUnit,
+    brand: unit.brand,
+    model: unit.model,
+  });
+
+  return NextResponse.json({ ok: true, id: unit.id, kodeUnit: unit.kodeUnit });
 });
 
 export const DELETE = withAuth<Ctx>(async (_req, user, ctx) => {

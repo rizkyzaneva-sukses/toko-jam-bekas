@@ -1,15 +1,16 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Search } from "lucide-react";
+import { Download, Pencil, Search } from "lucide-react";
 import { api } from "@/lib/api-client";
 import type { UnitRingkas } from "@/lib/tipe";
 import { formatAngka, formatRupiah, formatTanggal } from "@/lib/utils";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ModalRusak } from "@/components/modal-rusak";
+import { ModalEditUnit } from "@/components/modal-edit-unit";
 import {
   Badge,
   BadgeStatus,
@@ -66,6 +67,7 @@ function IsiInventory() {
   const [q, setQ] = React.useState("");
   const [qDebounce, setQDebounce] = React.useState("");
   const [rusakUntuk, setRusakUntuk] = React.useState<UnitRingkas | null>(null);
+  const [editUntuk, setEditUntuk] = React.useState<UnitRingkas | null>(null);
 
   React.useEffect(() => {
     const t = setTimeout(() => setQDebounce(q), 300);
@@ -172,7 +174,7 @@ function IsiInventory() {
         </div>
       </Card>
 
-      <Card>
+﻿      <Card>
         {isLoading ? (
           <SkeletonTabel baris={8} />
         ) : error ? (
@@ -202,7 +204,7 @@ function IsiInventory() {
                   <Th className="text-right">Harga Jual</Th>
                   <Th className="text-right">Margin</Th>
                   <Th className="text-right">Umur</Th>
-                  <Th />
+                  <Th className="text-right">Aksi</Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-zinc-700">
@@ -248,19 +250,30 @@ function IsiInventory() {
                       )}
                     </Td>
                     <Td className="text-right">
-                      {["MASUK_QC", "SERVICE", "READY"].includes(u.status) ? (
+                      <div className="flex items-center justify-end gap-1">
                         <Button
-                          varian="secondary"
-                          className="min-h-[36px] px-3 py-1"
-                          onClick={() => setRusakUntuk(u)}
+                          varian="ghost"
+                          className="min-h-[36px] px-2.5 py-1 text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-zinc-800"
+                          onClick={() => setEditUntuk(u)}
+                          title={`Edit ${u.kodeUnit}`}
                         >
-                          Rusak
+                          <Pencil className="h-4 w-4 mr-1" />
+                          <span className="text-xs">Edit</span>
                         </Button>
-                      ) : u.status === "TERJUAL" ? (
-                        <span className="text-xs text-gray-600 dark:text-gray-400">
-                          {formatTanggal(u.tglKeluar)}
-                        </span>
-                      ) : null}
+                        {["MASUK_QC", "SERVICE", "READY"].includes(u.status) ? (
+                          <Button
+                            varian="secondary"
+                            className="min-h-[36px] px-2.5 py-1 text-xs"
+                            onClick={() => setRusakUntuk(u)}
+                          >
+                            Rusak
+                          </Button>
+                        ) : u.status === "TERJUAL" ? (
+                          <span className="text-xs text-gray-600 dark:text-gray-400">
+                            {formatTanggal(u.tglKeluar)}
+                          </span>
+                        ) : null}
+                      </div>
                     </Td>
                   </tr>
                 ))}
@@ -271,6 +284,11 @@ function IsiInventory() {
       </Card>
 
       <ModalRusak unit={rusakUntuk} onClose={() => setRusakUntuk(null)} />
+      <ModalEditUnit
+        unit={editUntuk}
+        open={!!editUntuk}
+        onClose={() => setEditUntuk(null)}
+      />
     </>
   );
 }

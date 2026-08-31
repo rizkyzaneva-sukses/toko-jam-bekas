@@ -1,14 +1,4 @@
-// Stok sparepart — persediaan batre, strap, kaca, mesin, dll.
-//
-// Aturan uang yang paling penting di modul ini:
-//   - Membeli sparepart  = uang KELUAR dari kas, nilainya masuk ke persediaan.
-//   - Memakai sparepart  = TIDAK ada uang keluar. Nilainya berpindah dari
-//     persediaan sparepart ke HPP unit jam.
-// Kalau keduanya sama-sama memotong kas, biayanya terhitung dua kali.
-//
-// Harga pokok memakai rata-rata bergerak (moving average).
-
-import { JenisKomponen, Prisma } from "@/generated/prisma/client";
+import { Prisma, type JenisKomponen } from "@/generated/prisma/client";
 import { getPrisma } from "@/lib/prisma";
 import { KesalahanBisnis } from "@/lib/api-helpers";
 import { catatKasOtomatis, hapusKasReferensi } from "@/lib/kas";
@@ -58,6 +48,83 @@ export async function buatSparepart(data: DataSparepart) {
   });
 }
 
+export interface ItemImportSparepart {
+  nama: string;
+  jenis: JenisKomponen;
+  satuan?: string | null;
+  minStok?: number;
+  stokAwal?: number;
+  hargaBeliSatuan?: number;
+  catatan?: string | null;
+}
+
+/** Import batch sparepart dari Excel/CSV */
+export async function importSparepartBatch(items: ItemImportSparepart[]) {
+  if (!items || items.length === 0) {
+    throw new KesalahanBisnis("Tidak ada data sparepart untuk diimport");
+  }
+
+  return getPrisma().$transaction(async (tx) => {
+    const hasil = [];
+
+    for (const item of items) {
+      if (!item.nama?.trim()) {
+        throw new KesalahanBisnis("Ada baris dengan nama sparepart kosong");
+      }
+      const urut = await nomorBerikutnya(tx, `SP:${item.jenis}`);
+      const kode = `${item.jenis}-${String(urut).padStart(2, "0")}`;
+
+      const stokAwal = Math.max(0, Math.floor(Number(item.stokAwal) || 0));
+      const hargaBeli = Math.max(0, Number(item.hargaBeliSatuan) || 0);
+
+      const sp = await tx.sparepart.create({
+        data: {
+          kode,
+          nama: item.nama.trim(),
+          jenis: item.jenis,
+          satuan: item.satuan?.trim() || "pcs",
+          minStok: Math.max(0, Math.floor(Number(item.minStok) || 0)),
+          stok: stokAwal,
+          hargaRata: new Prisma.Decimal(stokAwal > 0 ? hargaBeli : 0),
+          catatan: item.catatan?.trim() || null,
+        },
+      });
+
+      if (stokAwal > 0) {
+        const total = stokAwal * hargaBeli;
+        const sekarang = new Date();
+        const mutasi = await tx.mutasiSparepart.create({
+          data: {
+            sparepartId: sp.id,
+            jenis: "MASUK_BELI",
+            qty: stokAwal,
+            hargaSatuan: new Prisma.Decimal(hargaBeli),
+            total: new Prisma.Decimal(total),
+            stokSesudah: stokAwal,
+            keterangan: "Stok awal saat import",
+            tanggal: sekarang,
+          },
+        });
+
+        if (total > 0) {
+          await catatKasOtomatis(tx, {
+            tanggal: sekarang,
+            jenis: "BELI_SPAREPART",
+            jumlah: total,
+            keterangan: `${sp.nama}  -  ${stokAwal} ${sp.satuan} (Stok awal import)`,
+            referensiTipe: "MutasiSparepart",
+            referensiId: mutasi.id,
+          });
+        }
+      }
+
+      hasil.push(sp);
+    }
+
+    return hasil;
+  });
+}
+
 export interface DataIsiStok {
   qty: number;
   hargaSatuan: number;
@@ -65,7 +132,7 @@ export interface DataIsiStok {
   keterangan?: string | null;
 }
 
-/** Pengisian stok — uang keluar dari kas, harga rata-rata dihitung ulang. */
+/** Pengisian stok  -  uang keluar dari kas, harga rata-rata dihitung ulang. */
 export async function isiStokSparepart(sparepartId: string, data: DataIsiStok) {
   if (data.qty <= 0) throw new KesalahanBisnis("Jumlah harus lebih dari 0");
   if (data.hargaSatuan <= 0) throw new KesalahanBisnis("Harga satuan harus lebih dari Rp 0");
@@ -105,7 +172,7 @@ export async function isiStokSparepart(sparepartId: string, data: DataIsiStok) {
       tanggal: data.tanggal,
       jenis: "BELI_SPAREPART",
       jumlah: total,
-      keterangan: `${sp.nama} — ${data.qty} ${sp.satuan}`,
+      keterangan: `${sp.nama}  -  ${data.qty} ${sp.satuan}`,
       referensiTipe: "MutasiSparepart",
       referensiId: mutasi.id,
     });
@@ -132,7 +199,7 @@ export async function sesuaikanStokSparepart(
     if (!sp) throw new KesalahanBisnis("Sparepart tidak ditemukan", 404);
 
     const selisih = stokBaru - sp.stok;
-    if (selisih === 0) throw new KesalahanBisnis("Stok tidak berubah — tidak ada yang dicatat");
+    if (selisih === 0) throw new KesalahanBisnis("Stok tidak berubah - tidak ada yang dicatat");
 
     const rata = toNumber(sp.hargaRata);
     const qty = Math.abs(selisih);
@@ -157,7 +224,7 @@ export async function sesuaikanStokSparepart(
 /**
  * Ambil sparepart dari stok untuk dipakai pada sebuah service.
  * Mengembalikan total biaya yang akan menempel ke HPP unit.
- * Tidak menyentuh kas — uangnya sudah keluar saat sparepart dibeli.
+ * Tidak menyentuh kas  -  uangnya sudah keluar saat sparepart dibeli.
  */
 export async function pakaiSparepart(
   tx: Tx,
@@ -228,7 +295,7 @@ export async function hapusSparepart(id: string) {
     const terpakai = await tx.serviceItem.count({ where: { sparepartId: id } });
     if (terpakai > 0) {
       throw new KesalahanBisnis(
-        `${sp.nama} sudah pernah dipakai di ${terpakai} service — tidak bisa dihapus. Nonaktifkan saja supaya riwayatnya tetap utuh.`
+        `${sp.nama} sudah pernah dipakai di ${terpakai} service  -  tidak bisa dihapus. Nonaktifkan saja supaya riwayatnya tetap utuh.`
       );
     }
 

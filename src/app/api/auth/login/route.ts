@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { getPrisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { apiError } from "@/lib/api-helpers";
+import { apiError, catatAudit } from "@/lib/api-helpers";
 
 // Rate limit sederhana per IP. Untuk multi-instance, pindahkan ke Redis/DB.
 const percobaan = new Map<string, { n: number; sampai: number }>();
@@ -30,9 +30,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // Dibungkus try/catch: tanpa ini, error koneksi/tabel DB keluar sebagai
-  // halaman 500 tanpa field `error`, dan user cuma melihat pesan generik
-  // "Terjadi kesalahan di server" yang tidak bisa ditindaklanjuti.
   try {
     const { username, password } = await req.json();
     if (!username || !password) {
@@ -43,7 +40,7 @@ export async function POST(req: Request) {
       where: { username: String(username).toLowerCase().trim(), isActive: true },
     });
 
-    // Pesan sengaja generik — jangan bocorkan mana yang salah.
+    // Pesan sengaja generik --- jangan bocorkan mana yang salah.
     const gagal = NextResponse.json({ error: "Username atau password salah" }, { status: 401 });
 
     if (!user?.passwordHash) return gagal;
@@ -59,6 +56,13 @@ export async function POST(req: Request) {
     await getPrisma().user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
+    });
+
+    await catatAudit(user.id, "LOGIN", "Auth", user.id, {
+      username: user.username,
+      nama: user.nama,
+      role: user.role,
+      ip,
     });
 
     percobaan.delete(ip);

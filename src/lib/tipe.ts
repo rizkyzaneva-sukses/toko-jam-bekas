@@ -15,9 +15,9 @@ export interface UnitRingkas {
   kodeUnit: string;
   brand: string;
   model: string;
-  /** "Seiko 1002" — kunci pengelompokan, tidak berubah oleh service */
+  /** "Seiko 1002"  -  kunci pengelompokan, tidak berubah oleh service */
   namaDasar: string;
-  /** "Seiko 1002 (Ganti Batre, Ganti Strap)" — untuk ditampilkan */
+  /** "Seiko 1002 (Ganti Batre, Ganti Strap)"  -  untuk ditampilkan */
   namaLengkap: string;
   labelService: string[];
   status: StatusUnitStr;
@@ -33,6 +33,12 @@ export interface UnitRingkas {
   umurHari: number | null;
   alasanRusak: string | null;
   catatan: string | null;
+  catatanKondisi?: string | null;
+  adaBox?: boolean;
+  adaSurat?: boolean;
+  adaBuku?: boolean;
+  adaExtraLink?: boolean;
+  adaSertifikat?: boolean;
 }
 
 export interface UnitDetail extends UnitRingkas {
@@ -162,12 +168,12 @@ export interface BarisLedger {
 }
 
 export const LABEL_LEDGER: Record<string, string> = {
-  MASUK_BELI: "Masuk — Pembelian",
-  MASUK_QC_LOLOS: "QC Lolos — Masuk Inventory",
-  KELUAR_SERVICE: "Keluar — Masuk Service",
-  MASUK_SERVICE_SELESAI: "Masuk — Service Selesai",
-  KELUAR_JUAL: "Keluar — Penjualan",
-  KELUAR_RUSAK: "Keluar — Barang Rusak",
+  MASUK_BELI: "Masuk  -  Pembelian",
+  MASUK_QC_LOLOS: "QC Lolos  -  Masuk Inventory",
+  KELUAR_SERVICE: "Keluar  -  Masuk Service",
+  MASUK_SERVICE_SELESAI: "Masuk  -  Service Selesai",
+  KELUAR_JUAL: "Keluar  -  Penjualan",
+  KELUAR_RUSAK: "Keluar  -  Barang Rusak",
 };
 
 export const LABEL_KOMPONEN: Record<JenisKomponenStr, string> = {

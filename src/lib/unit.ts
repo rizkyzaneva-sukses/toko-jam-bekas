@@ -1,11 +1,12 @@
 // Logika bisnis unit jam: penomoran, alur status, QC, dan write-off.
-// Semua mutasi stok lewat sini — route handler tidak boleh menyentuh Prisma langsung.
+// Semua mutasi stok lewat sini  -  route handler tidak boleh menyentuh Prisma langsung.
 
 import { Prisma, type StatusUnit, type GradeUnit } from "@/generated/prisma/client";
 import { getPrisma } from "@/lib/prisma";
 import { KesalahanBisnis } from "@/lib/api-helpers";
 import { catatKasOtomatis, hapusKasReferensi } from "@/lib/kas";
 import { slugBrand } from "@/lib/hitung";
+import { toNumber } from "@/lib/utils";
 
 type Tx = Prisma.TransactionClient;
 
@@ -27,7 +28,7 @@ export async function nomorBerikutnya(tx: Tx, kunci: string): Promise<number> {
 
 /**
  * Hitung ulang HPP unit dari seluruh biaya service yang menempel padanya.
- * HPP = hargaBeli + Σ(semua biaya service).
+ * HPP = hargaBeli + --(semua biaya service).
  */
 export async function hitungUlangHpp(tx: Tx, unitId: string): Promise<void> {
   const unit = await tx.unit.findUnique({
@@ -96,12 +97,117 @@ export async function buatUnit(data: DataBeliUnit) {
       tanggal: data.tglBeli,
       jenis: "BELI_UNIT",
       jumlah: data.hargaBeli,
-      keterangan: `${unit.kodeUnit} — ${unit.brand} ${unit.model}`,
+      keterangan: `${unit.kodeUnit}  -  ${unit.brand} ${unit.model}`,
       referensiTipe: "Unit",
       referensiId: unit.id,
     });
 
     return unit;
+  });
+}
+
+export interface DataEditUnit {
+  brand?: string;
+  model?: string;
+  tglBeli?: Date;
+  hargaBeli?: number;
+  hargaJual?: number | null;
+  grade?: GradeUnit | null;
+  catatan?: string | null;
+  catatanKondisi?: string | null;
+  adaBox?: boolean;
+  adaSurat?: boolean;
+  adaBuku?: boolean;
+  adaExtraLink?: boolean;
+  adaSertifikat?: boolean;
+}
+
+/** Edit informasi unit (identitas, kondisi, kelengkapan, dan modal jika belum terjual). */
+export async function editUnit(unitId: string, data: DataEditUnit) {
+  return getPrisma().$transaction(async (tx) => {
+    const unit = await tx.unit.findUnique({
+      where: { id: unitId },
+    });
+    if (!unit) throw new KesalahanBisnis("Unit tidak ditemukan", 404);
+
+    const dataUpdate: Prisma.UnitUpdateInput = {};
+
+    if (data.brand !== undefined) {
+      if (!data.brand.trim()) throw new KesalahanBisnis("Brand wajib diisi");
+      dataUpdate.brand = data.brand.trim();
+    }
+    if (data.model !== undefined) {
+      if (!data.model.trim()) throw new KesalahanBisnis("Model wajib diisi");
+      dataUpdate.model = data.model.trim();
+    }
+    if (data.catatan !== undefined) {
+      dataUpdate.catatan = data.catatan?.trim() || null;
+    }
+    if (data.catatanKondisi !== undefined) {
+      dataUpdate.catatanKondisi = data.catatanKondisi?.trim() || null;
+    }
+    if (data.grade !== undefined) {
+      dataUpdate.grade = data.grade;
+    }
+    if (data.adaBox !== undefined) dataUpdate.adaBox = data.adaBox;
+    if (data.adaSurat !== undefined) dataUpdate.adaSurat = data.adaSurat;
+    if (data.adaBuku !== undefined) dataUpdate.adaBuku = data.adaBuku;
+    if (data.adaExtraLink !== undefined) dataUpdate.adaExtraLink = data.adaExtraLink;
+    if (data.adaSertifikat !== undefined) dataUpdate.adaSertifikat = data.adaSertifikat;
+
+    if (data.hargaJual !== undefined) {
+      if (data.hargaJual !== null && data.hargaJual < 0) {
+        throw new KesalahanBisnis("Harga jual tidak boleh negatif");
+      }
+      dataUpdate.hargaJual = data.hargaJual !== null ? new Prisma.Decimal(data.hargaJual) : null;
+    }
+
+    if (data.tglBeli !== undefined) {
+      dataUpdate.tglBeli = data.tglBeli;
+      // Sinkronkan juga tanggal baris KasEntry BELI_UNIT terkait
+      await tx.kasEntry.updateMany({
+        where: { referensiTipe: "Unit", referensiId: unit.id, jenis: "BELI_UNIT" },
+        data: { tanggal: data.tglBeli },
+      });
+      // Sinkronkan juga tanggal stok ledger MASUK_BELI
+      await tx.stokLedger.updateMany({
+        where: { unitId: unit.id, jenis: "MASUK_BELI" },
+        data: { tanggal: data.tglBeli },
+      });
+    }
+
+    if (data.hargaBeli !== undefined) {
+      if (data.hargaBeli <= 0) {
+        throw new KesalahanBisnis("Harga beli harus lebih dari Rp 0");
+      }
+
+      if (unit.status === "TERJUAL" && data.hargaBeli !== toNumber(unit.hargaBeli)) {
+        throw new KesalahanBisnis(
+          "Harga beli unit yang sudah TERJUAL tidak dapat diubah karena nota penjualan sudah dibekukan."
+        );
+      }
+
+      const totalService = toNumber(unit.totalBiayaService);
+      const hppBaru = data.hargaBeli + totalService;
+
+      dataUpdate.hargaBeli = new Prisma.Decimal(data.hargaBeli);
+      dataUpdate.hpp = new Prisma.Decimal(hppBaru);
+
+      // Sinkronkan jumlah kas keluar BELI_UNIT
+      const brandModel = `${dataUpdate.brand ?? unit.brand} ${dataUpdate.model ?? unit.model}`;
+      await tx.kasEntry.updateMany({
+        where: { referensiTipe: "Unit", referensiId: unit.id, jenis: "BELI_UNIT" },
+        data: {
+          jumlah: new Prisma.Decimal(data.hargaBeli),
+          keterangan: `${unit.kodeUnit}  -  ${brandModel}`,
+        },
+      });
+    }
+
+    return tx.unit.update({
+      where: { id: unitId },
+      data: dataUpdate,
+    });
   });
 }
 
@@ -171,7 +277,7 @@ export async function prosesQc(data: DataQc) {
           jenis: "MASUK_QC_LOLOS",
           qty: 0,
           tanggal: sekarang,
-          keterangan: `QC lolos — grade ${data.grade}`,
+          keterangan: `QC lolos  -  grade ${data.grade}`,
         },
       });
 
@@ -225,7 +331,7 @@ export async function tandaiRusak(unitId: string, alasan: string, tanggal: Date)
     const bolehDari: StatusUnit[] = ["MASUK_QC", "SERVICE", "READY"];
     if (!bolehDari.includes(unit.status)) {
       throw new KesalahanBisnis(
-        `Unit ${unit.kodeUnit} berstatus ${unit.status} — tidak bisa dipindah ke RUSAK`
+        `Unit ${unit.kodeUnit} berstatus ${unit.status}  -  tidak bisa dipindah ke RUSAK`
       );
     }
 
@@ -253,7 +359,7 @@ export async function tandaiRusak(unitId: string, alasan: string, tanggal: Date)
   });
 }
 
-/** Batalkan write-off — mengembalikan unit ke status sebelumnya. */
+/** Batalkan write-off  -  mengembalikan unit ke status sebelumnya. */
 export async function batalRusak(unitId: string) {
   return getPrisma().$transaction(async (tx) => {
     const unit = await tx.unit.findUnique({ where: { id: unitId } });
@@ -278,7 +384,7 @@ export async function batalRusak(unitId: string) {
   });
 }
 
-/** Hapus unit — hanya boleh kalau belum pernah ada pergerakan selain pembelian. */
+/** Hapus unit  -  hanya boleh kalau belum pernah ada pergerakan selain pembelian. */
 export async function hapusUnit(unitId: string) {
   return getPrisma().$transaction(async (tx) => {
     const unit = await tx.unit.findUnique({
