@@ -18,11 +18,11 @@ import {
   Receipt,
   ReceiptText,
   ScrollText,
-  Settings,
   ShoppingCart,
   Store,
   TrendingUp,
   Wallet,
+  Settings,
   Watch,
   Wrench,
   X,
@@ -85,9 +85,7 @@ const MENU: { grup: string; item: ItemMenu[] }[] = [
   },
   {
     grup: "Owner",
-    item: [
-      { href: "/pengaturan", label: "Pengaturan", icon: Settings },
-    ],
+    item: [{ href: "/pengaturan", label: "Pengaturan", icon: Settings }],
   },
 ];
 
