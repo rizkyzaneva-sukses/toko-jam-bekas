@@ -4,7 +4,7 @@
 // operasional adalah beban periode: diakui penuh pada bulan terjadinya,
 // tidak menunggu barang terjual.
 
-import { KategoriBiaya } from "@/generated/prisma/client";
+import { KategoriBiaya, Prisma } from "@/generated/prisma/client";
 import { getPrisma } from "@/lib/prisma";
 import { KesalahanBisnis } from "@/lib/api-helpers";
 import { catatKasOtomatis, hapusKasReferensi } from "@/lib/kas";
@@ -41,7 +41,7 @@ export async function buatBiaya(data: DataBiaya) {
         tanggal: data.tanggal,
         kategori: data.kategori,
         deskripsi: data.deskripsi.trim(),
-        jumlah: data.jumlah,
+        jumlah: new Prisma.Decimal(data.jumlah),
         catatan: data.catatan?.trim() || null,
       },
     });

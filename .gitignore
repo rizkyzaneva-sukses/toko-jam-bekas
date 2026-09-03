@@ -8,6 +8,8 @@ src/generated
 *.log
 .DS_Store
 coverage
+*.db
+dev.db
 
 tsconfig.tsbuildinfo
 .claude/

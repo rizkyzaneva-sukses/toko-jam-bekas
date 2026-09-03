@@ -26,9 +26,9 @@ export const GET = withAuth(async (req) => {
   }
   if (q) {
     where.OR = [
-      { noNota: { contains: q } },
-      { namaPembeli: { contains: q } },
-      { mitra: { nama: { contains: q } } },
+      { noNota: { contains: q, mode: "insensitive" } },
+      { namaPembeli: { contains: q, mode: "insensitive" } },
+      { mitra: { nama: { contains: q, mode: "insensitive" } } },
     ];
   }
 
