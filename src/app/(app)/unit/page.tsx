@@ -1,16 +1,18 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Pencil, Search } from "lucide-react";
+import { Download, Pencil, Plus, Search, Upload } from "lucide-react";
 import { api } from "@/lib/api-client";
 import type { UnitRingkas } from "@/lib/tipe";
 import { formatAngka, formatRupiah, formatTanggal } from "@/lib/utils";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ModalRusak } from "@/components/modal-rusak";
 import { ModalEditUnit } from "@/components/modal-edit-unit";
+import { ModalInputStokLama } from "@/components/modal-stok-lama";
+import { ModalImportUnit } from "@/components/modal-import-unit";
 import {
   Badge,
   BadgeStatus,
@@ -68,6 +70,8 @@ function IsiInventory() {
   const [qDebounce, setQDebounce] = React.useState("");
   const [rusakUntuk, setRusakUntuk] = React.useState<UnitRingkas | null>(null);
   const [editUntuk, setEditUntuk] = React.useState<UnitRingkas | null>(null);
+  const [formStokLama, setFormStokLama] = React.useState(false);
+  const [formImport, setFormImport] = React.useState(false);
 
   React.useEffect(() => {
     const t = setTimeout(() => setQDebounce(q), 300);
@@ -96,11 +100,19 @@ function IsiInventory() {
         judul="Inventory"
         deskripsi="Seluruh unit jam beserta modal, HPP, dan umur stoknya."
         aksi={
-          <a href="/api/export?jenis=stok">
-            <Button varian="secondary">
-              <Download className="h-4 w-4" /> Export Excel
+          <div className="flex flex-wrap gap-2">
+            <Button varian="secondary" onClick={() => setFormImport(true)}>
+              <Upload className="h-4 w-4 mr-1" /> Import Excel
             </Button>
-          </a>
+            <a href="/api/export?jenis=stok">
+              <Button varian="secondary">
+                <Download className="h-4 w-4 mr-1" /> Export Excel
+              </Button>
+            </a>
+            <Button onClick={() => setFormStokLama(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Input Stok Lama
+            </Button>
+          </div>
         }
       />
 
@@ -288,6 +300,14 @@ function IsiInventory() {
         unit={editUntuk}
         open={!!editUntuk}
         onClose={() => setEditUntuk(null)}
+      />
+      <ModalInputStokLama
+        open={formStokLama}
+        onClose={() => setFormStokLama(false)}
+      />
+      <ModalImportUnit
+        open={formImport}
+        onClose={() => setFormImport(false)}
       />
     </>
   );

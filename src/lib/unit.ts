@@ -412,3 +412,123 @@ export async function hapusUnit(unitId: string) {
     return unit;
   });
 }
+
+export interface DataStokLamaUnit {
+  brand: string;
+  model: string;
+  hargaBeli: number;
+  tglBeli: Date;
+  status?: "READY" | "MASUK_QC";
+  grade?: GradeUnit | null;
+  hargaJual?: number | null;
+  tglMasukInventory?: Date | null;
+  adaBox?: boolean;
+  adaSurat?: boolean;
+  adaBuku?: boolean;
+  adaExtraLink?: boolean;
+  adaSertifikat?: boolean;
+  catatanKondisi?: string | null;
+  catatan?: string | null;
+}
+
+/**
+ * Input stok lama (satuan).
+ * Tidak memotong kas (kasEntry tidak dibuat), sesuai kebijakan user untuk saldo awal.
+ */
+export async function inputStokLama(data: DataStokLamaUnit, txExternal?: Tx) {
+  if (!data.brand?.trim()) throw new KesalahanBisnis("Brand wajib diisi");
+  if (!data.model?.trim()) throw new KesalahanBisnis("Model wajib diisi");
+  if (data.hargaBeli <= 0) throw new KesalahanBisnis("Harga beli harus lebih dari Rp 0");
+
+  const status = data.status ?? "READY";
+  const gradeFinal = status === "READY" ? (data.grade ?? "B") : null;
+
+  const jalankan = async (tx: Tx) => {
+    const slug = slugBrand(data.brand);
+    const urut = await nomorBerikutnya(tx, `UNIT:${slug}`);
+    const kodeUnit = `${slug}-${String(urut).padStart(3, "0")}`;
+
+    const tglMasuk = status === "READY" ? (data.tglMasukInventory ?? data.tglBeli) : null;
+
+    const unit = await tx.unit.create({
+      data: {
+        kodeUnit,
+        brand: data.brand.trim(),
+        model: data.model.trim(),
+        hargaBeli: new Prisma.Decimal(data.hargaBeli),
+        hpp: new Prisma.Decimal(data.hargaBeli),
+        totalBiayaService: new Prisma.Decimal(0),
+        hargaJual:
+          data.hargaJual !== undefined && data.hargaJual !== null && data.hargaJual > 0
+            ? new Prisma.Decimal(data.hargaJual)
+            : null,
+        status,
+        grade: gradeFinal,
+        adaBox: data.adaBox ?? false,
+        adaSurat: data.adaSurat ?? false,
+        adaBuku: data.adaBuku ?? false,
+        adaExtraLink: data.adaExtraLink ?? false,
+        adaSertifikat: data.adaSertifikat ?? false,
+        catatanKondisi: data.catatanKondisi?.trim() || null,
+        catatan: data.catatan?.trim() || null,
+        tglBeli: data.tglBeli,
+        tglMasukInventory: tglMasuk,
+      },
+    });
+
+    await tx.stokLedger.create({
+      data: {
+        unitId: unit.id,
+        jenis: "MASUK_BELI",
+        qty: 1,
+        tanggal: data.tglBeli,
+        keterangan: `Stok lama / awal: ${unit.kodeUnit}`,
+      },
+    });
+
+    if (status === "READY") {
+      await tx.qcRecord.create({
+        data: {
+          unitId: unit.id,
+          hasil: "LOLOS",
+          keterangan: "Stok awal langsung lolos QC",
+          tanggal: tglMasuk ?? data.tglBeli,
+        },
+      });
+
+      await tx.stokLedger.create({
+        data: {
+          unitId: unit.id,
+          jenis: "MASUK_QC_LOLOS",
+          qty: 0,
+          tanggal: tglMasuk ?? data.tglBeli,
+          keterangan: `Stok awal  -  grade ${gradeFinal}`,
+        },
+      });
+    }
+
+    return unit;
+  };
+
+  if (txExternal) {
+    return jalankan(txExternal);
+  }
+  return getPrisma().$transaction(jalankan);
+}
+
+/** Import batch stok lama jam dari Excel/CSV */
+export async function importStokLamaBatch(items: DataStokLamaUnit[]) {
+  if (!items || items.length === 0) {
+    throw new KesalahanBisnis("Tidak ada data unit untuk diimport");
+  }
+
+  return getPrisma().$transaction(async (tx) => {
+    const hasil = [];
+    for (const item of items) {
+      const unit = await inputStokLama(item, tx);
+      hasil.push(unit);
+    }
+    return hasil;
+  });
+}
+
