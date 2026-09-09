@@ -126,7 +126,7 @@ export function ModalInputStokLama({
 
   const opsiBrand = [
     ...(dataUnits?.brands ?? []).map((b) => ({ value: b, label: b })),
-    { value: "__BARU__", label: "+ Tambah Brand Baru..." },
+    { value: "__BARU__", label: "+ Tambah Brand Baru...", alwaysShow: true },
   ];
 
   return (

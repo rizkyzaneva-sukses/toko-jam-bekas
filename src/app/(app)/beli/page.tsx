@@ -79,7 +79,7 @@ export default function HalamanBeli() {
 
   const opsiBrand = [
     ...(data?.brands ?? []).map((b) => ({ value: b, label: b })),
-    { value: "__BARU__", label: "+ Brand baru..." },
+    { value: "__BARU__", label: "+ Brand baru...", alwaysShow: true },
   ];
 
   return (

@@ -15,6 +15,8 @@ export interface SelectOption {
   /** Teks kecil di bawah label, mis. kode unit atau harga */
   hint?: string;
   disabled?: boolean;
+  /** Selalu tampil meski search tidak match (mis. "+ Brand baru...") */
+  alwaysShow?: boolean;
 }
 
 interface BaseProps {
@@ -149,7 +151,18 @@ export function SearchableSelect(props: SingleProps | MultiProps) {
               "border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800"
             )}
           >
-            <Command shouldFilter={!onSearch} className="w-full">
+            <Command
+              shouldFilter={!onSearch}
+              filter={(value, search) => {
+                if (!search) return 1;
+                const opt = options.find(
+                  (o) => `${o.label} ${o.hint ?? ""} ${o.value}` === value
+                );
+                if (opt?.alwaysShow) return 1;
+                return value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
+              }}
+              className="w-full"
+            >
               <div className="border-b border-gray-200 px-3 dark:border-zinc-700">
                 <Command.Input
                   autoFocus
