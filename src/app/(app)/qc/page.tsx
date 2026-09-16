@@ -10,6 +10,7 @@ import { formatRupiah, formatTanggal } from "@/lib/utils";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Modal } from "@/components/ui/dialog";
 import { ModalRusak } from "@/components/modal-rusak";
+import { ModalHapusUnit } from "@/components/modal-hapus-unit";
 import {
   Badge,
   Button,
@@ -48,6 +49,7 @@ export default function HalamanQc() {
   const [lolosUntuk, setLolosUntuk] = React.useState<BarisQc | null>(null);
   const [gagalUntuk, setGagalUntuk] = React.useState<BarisQc | null>(null);
   const [rusakUntuk, setRusakUntuk] = React.useState<BarisQc | null>(null);
+  const [hapusUntuk, setHapusUntuk] = React.useState<BarisQc | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["qc"],
@@ -147,6 +149,13 @@ export default function HalamanQc() {
                     <Button varian="danger" className="px-2" onClick={() => setRusakUntuk(u)}>
                       Rusak
                     </Button>
+                    <Button
+                      varian="ghost"
+                      className="col-span-3 px-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                      onClick={() => setHapusUntuk(u)}
+                    >
+                      Salah input? Batalkan unit
+                    </Button>
                   </div>
                 </li>
               ))}
@@ -219,6 +228,13 @@ export default function HalamanQc() {
                         >
                           Rusak
                         </Button>
+                        <Button
+                          varian="ghost"
+                          className="min-h-[36px] px-3 py-1 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                          onClick={() => setHapusUntuk(u)}
+                        >
+                          Batalkan
+                        </Button>
                       </div>
                     </Td>
                   </tr>
@@ -234,6 +250,7 @@ export default function HalamanQc() {
       <ModalLolos unit={lolosUntuk} onClose={() => setLolosUntuk(null)} />
       <ModalGagal unit={gagalUntuk} onClose={() => setGagalUntuk(null)} />
       <ModalRusak unit={rusakUntuk} onClose={() => setRusakUntuk(null)} />
+      <ModalHapusUnit unit={hapusUntuk} onClose={() => setHapusUntuk(null)} />
     </>
   );
 }

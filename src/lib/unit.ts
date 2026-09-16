@@ -5,6 +5,7 @@ import { Prisma, type StatusUnit, type GradeUnit } from "@/generated/prisma/clie
 import { getPrisma } from "@/lib/prisma";
 import { KesalahanBisnis } from "@/lib/api-helpers";
 import { catatKasOtomatis, hapusKasReferensi } from "@/lib/kas";
+import { kembalikanSparepart } from "@/lib/sparepart";
 import { slugBrand } from "@/lib/hitung";
 import { toNumber } from "@/lib/utils";
 
@@ -384,32 +385,205 @@ export async function batalRusak(unitId: string) {
   });
 }
 
-/** Hapus unit  -  hanya boleh kalau belum pernah ada pergerakan selain pembelian. */
-export async function hapusUnit(unitId: string) {
+/**
+ * Periksa apakah unit boleh dibatalkan (dihapus total).
+ * Dipakai UI untuk menampilkan peringatan sebelum eksekusi.
+ */
+export interface DampakHapusUnit {
+  id: string;
+  kodeUnit: string;
+  brand: string;
+  model: string;
+  status: StatusUnit;
+  hargaBeli: number;
+  totalBiayaService: number;
+  hpp: number;
+  bolehHapusTanpaPaksa: boolean;
+  /** Alasan kalau harus pakai paksa (mis. sudah punya riwayat). */
+  alasanBlokir: string | null;
+  /** Unit yang sudah terjual tidak boleh dihapus dari sini. */
+  sudahTerjual: boolean;
+  noNota: string | null;
+  jumlahQc: number;
+  jumlahService: number;
+  jumlahKomponenService: number;
+  jumlahPergerakanLedger: number;
+  jumlahBarisKas: number;
+  totalKasKeluar: number;
+  sparepartDipakai: { nama: string; qty: number }[];
+  /** Kerugian yang timbul kalau unit ini dihapus padahal uangnya sudah keluar. */
+  kerugianKas: number;
+}
+
+/** Rincian dampak penghapusan sebuah unit — untuk ditampilkan di dialog konfirmasi. */
+export async function periksaDampakHapusUnit(unitId: string): Promise<DampakHapusUnit> {
+  const u = await getPrisma().unit.findUnique({
+    where: { id: unitId },
+    select: {
+      id: true,
+      kodeUnit: true,
+      brand: true,
+      model: true,
+      status: true,
+      hargaBeli: true,
+      totalBiayaService: true,
+      hpp: true,
+      penjualanItem: {
+        select: { penjualan: { select: { noNota: true } } },
+      },
+      qcRecords: { select: { id: true } },
+      services: {
+        select: {
+          id: true,
+          items: {
+            select: {
+              id: true,
+              qty: true,
+              sparepart: { select: { nama: true } },
+            },
+          },
+        },
+      },
+      ledger: { select: { id: true, jenis: true } },
+    },
+  });
+  if (!u) throw new KesalahanBisnis("Unit tidak ditemukan", 404);
+
+  const qcRecords = u.qcRecords.length;
+  const jumlahService = u.services.length;
+  const komponen = u.services.flatMap((s) => s.items);
+
+  const barisKas = await getPrisma().kasEntry.findMany({
+    where: { referensiTipe: "Unit", referensiId: u.id },
+    select: { arah: true, jumlah: true },
+  });
+  const kasKeluar = barisKas
+    .filter((k) => k.arah === "KELUAR")
+    .reduce((a, k) => a + toNumber(k.jumlah), 0);
+
+  const ledgerLain = u.ledger.filter((l) => l.jenis !== "MASUK_BELI").length;
+  const sudahTerjual = !!u.penjualanItem;
+
+  let alasanBlokir: string | null = null;
+  if (sudahTerjual) {
+    alasanBlokir =
+      `Unit ini sudah terjual di nota ${u.penjualanItem!.penjualan.noNota}. ` +
+      `Batalkan nota penjualannya dulu, baru unit bisa dihapus.`;
+  } else if (u.status !== "MASUK_QC") {
+    alasanBlokir = `Status unit sekarang ${u.status} — sudah keluar dari antrian QC.`;
+  } else if (ledgerLain > 0) {
+    alasanBlokir = "Unit sudah punya pergerakan stok (QC / service).";
+  }
+
+  return {
+    id: u.id,
+    kodeUnit: u.kodeUnit,
+    brand: u.brand,
+    model: u.model,
+    status: u.status,
+    hargaBeli: toNumber(u.hargaBeli),
+    totalBiayaService: toNumber(u.totalBiayaService),
+    hpp: toNumber(u.hpp),
+    bolehHapusTanpaPaksa: alasanBlokir === null,
+    alasanBlokir,
+    sudahTerjual,
+    noNota: u.penjualanItem?.penjualan.noNota ?? null,
+    jumlahQc: qcRecords,
+    jumlahService,
+    jumlahKomponenService: komponen.length,
+    jumlahPergerakanLedger: ledgerLain,
+    jumlahBarisKas: barisKas.length,
+    totalKasKeluar: kasKeluar,
+    sparepartDipakai: komponen
+      .filter((i) => i.sparepart && i.qty)
+      .map((i) => ({ nama: i.sparepart!.nama, qty: i.qty! })),
+    kerugianKas: kasKeluar,
+  };
+}
+
+/**
+ * Batalkan / hapus unit yang salah input.
+ *
+ * Aman: unit masih di antrian QC, belum ada pergerakan stok lain, belum terjual.
+ *   -> seluruh jejaknya (kas, ledger, QC) dibersihkan dan unit dihapus.
+ *
+ * Paksa (paksa = true): unit sudah lewat QC / ada biaya service.
+ *   -> jejaknya tetap dibersihkan, tapi kas yang sudah keluar TIDAK kembali
+ *      (uangnya sudah dibayarkan ke penjual). Saldo kas akan tercatat lebih
+ *      kecil dari kenyataan sebesar `kerugianKas` — pemilik harus menyetor
+ *      penyesuaian manual kalau memang uangnya bisa ditarik kembali.
+ *
+ * Unit TERJUAL selalu ditolak — batalkan nota penjualannya dulu.
+ */
+export async function hapusUnit(unitId: string, paksa = false) {
   return getPrisma().$transaction(async (tx) => {
     const unit = await tx.unit.findUnique({
       where: { id: unitId },
-      select: { id: true, kodeUnit: true, status: true },
+      select: {
+        id: true,
+        kodeUnit: true,
+        brand: true,
+        model: true,
+        status: true,
+        hargaBeli: true,
+        penjualanItem: { select: { id: true, penjualan: { select: { noNota: true } } } },
+      },
     });
     if (!unit) throw new KesalahanBisnis("Unit tidak ditemukan", 404);
-    if (unit.status !== "MASUK_QC") {
+
+    if (unit.penjualanItem) {
       throw new KesalahanBisnis(
-        `Unit ${unit.kodeUnit} sudah punya riwayat. Gunakan "Pindahkan ke RUSAK", jangan dihapus.`
+        `Unit ${unit.kodeUnit} sudah terjual di nota ${unit.penjualanItem.penjualan.noNota}. ` +
+          `Batalkan nota penjualannya dulu dari halaman Penjualan.`
       );
     }
 
     const jejak = await tx.stokLedger.count({
       where: { unitId: unit.id, jenis: { not: "MASUK_BELI" } },
     });
-    if (jejak > 0) {
+    const adaRiwayat = unit.status !== "MASUK_QC" || jejak > 0;
+
+    if (adaRiwayat && !paksa) {
       throw new KesalahanBisnis(
-        `Unit ${unit.kodeUnit} sudah punya pergerakan stok. Gunakan "Pindahkan ke RUSAK".`
+        `Unit ${unit.kodeUnit} sudah punya riwayat (status ${unit.status}). ` +
+          `Kirim ulang dengan mode paksa kalau memang mau dihapus permanen.`
       );
     }
 
+    // 1. Kembalikan sparepart yang terpakai ke stok + hapus mutasinya.
+    const komponen = await tx.serviceItem.findMany({
+      where: { service: { unitId: unit.id } },
+      select: { id: true, sparepartId: true },
+    });
+    for (const k of komponen) {
+      if (k.sparepartId) await kembalikanSparepart(tx, k.id);
+    }
+
+    // 2. Bersihkan kas otomatis milik unit + komponen service-nya.
     await hapusKasReferensi(tx, "Unit", unit.id);
+    for (const k of komponen) {
+      await hapusKasReferensi(tx, "ServiceItem", k.id);
+    }
+
+    // 3. Hapus ServiceItem lebih dulu (FK ke Sparepart tidak cascade),
+    //    lalu Service / QcRecord / Ledger ikut terhapus lewat onDelete: Cascade.
+    await tx.serviceItem.deleteMany({ where: { service: { unitId: unit.id } } });
+    await tx.serviceItem.deleteMany({ where: { id: { in: komponen.map((k) => k.id) } } });
+    await tx.stokLedger.deleteMany({ where: { unitId: unit.id } });
+    await tx.qcRecord.deleteMany({ where: { unitId: unit.id } });
+    await tx.service.deleteMany({ where: { unitId: unit.id } });
+
     await tx.unit.delete({ where: { id: unit.id } });
-    return unit;
+
+    return {
+      id: unit.id,
+      kodeUnit: unit.kodeUnit,
+      brand: unit.brand,
+      model: unit.model,
+      hpp: toNumber(unit.hargaBeli),
+      paksa: adaRiwayat,
+      sparepartDikembalikan: komponen.filter((k) => k.sparepartId).length,
+    };
   });
 }
 

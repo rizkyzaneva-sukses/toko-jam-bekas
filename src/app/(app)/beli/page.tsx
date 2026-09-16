@@ -9,6 +9,7 @@ import { api } from "@/lib/api-client";
 import type { UnitRingkas } from "@/lib/tipe";
 import { formatRupiah, formatTanggal, tanggalWIB } from "@/lib/utils";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ModalHapusUnit } from "@/components/modal-hapus-unit";
 import {
   Button,
   Card,
@@ -35,6 +36,7 @@ export default function HalamanBeli() {
   const [tglBeli, setTglBeli] = React.useState(tanggalWIB());
   const [catatan, setCatatan] = React.useState("");
   const [error, setError] = React.useState<Record<string, string>>({});
+  const [hapusUntuk, setHapusUntuk] = React.useState<UnitRingkas | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["units", "terbaru"],
@@ -195,6 +197,7 @@ export default function HalamanBeli() {
                     <Th>Jam</Th>
                     <Th className="text-right">Harga Beli</Th>
                     <Th>Tgl Beli</Th>
+                    <Th />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-zinc-700">
@@ -211,6 +214,17 @@ export default function HalamanBeli() {
                       <Td>{u.namaLengkap}</Td>
                       <Td className="text-right tabular-nums">{formatRupiah(u.hargaBeli)}</Td>
                       <Td>{formatTanggal(u.tglBeli)}</Td>
+                      <Td>
+                        <div className="flex justify-end">
+                          <Button
+                            varian="ghost"
+                            className="min-h-[36px] px-3 py-1 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                            onClick={() => setHapusUntuk(u)}
+                          >
+                            Salah input? Batalkan
+                          </Button>
+                        </div>
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
@@ -219,6 +233,8 @@ export default function HalamanBeli() {
           )}
         </Card>
       </div>
+
+      <ModalHapusUnit unit={hapusUntuk} onClose={() => setHapusUntuk(null)} />
     </>
   );
 }

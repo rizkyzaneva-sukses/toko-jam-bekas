@@ -4,12 +4,13 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Check, Minus, Pencil } from "lucide-react";
+import { ArrowLeft, Check, Minus, Pencil, Trash2 } from "lucide-react";
 import { api } from "@/lib/api-client";
 import type { UnitDetail } from "@/lib/tipe";
 import { LABEL_KOMPONEN, LABEL_LEDGER } from "@/lib/tipe";
 import { formatRupiah, formatTanggal, formatTanggalJam } from "@/lib/utils";
 import { ModalRusak } from "@/components/modal-rusak";
+import { ModalHapusUnit } from "@/components/modal-hapus-unit";
 import { ModalEditUnit } from "@/components/modal-edit-unit";
 import {
   Badge,
@@ -29,6 +30,7 @@ import {
 export default function HalamanDetailUnit() {
   const params = useParams<{ id: string }>();
   const [rusakUntuk, setRusakUntuk] = React.useState<UnitDetail | null>(null);
+  const [hapusUntuk, setHapusUntuk] = React.useState<UnitDetail | null>(null);
   const [editUntuk, setEditUntuk] = React.useState<UnitDetail | null>(null);
 
   const { data: u, isLoading, error, refetch } = useQuery({
@@ -82,6 +84,16 @@ export default function HalamanDetailUnit() {
             {["MASUK_QC", "SERVICE", "READY"].includes(u.status) && (
               <Button varian="danger" onClick={() => setRusakUntuk(u)}>
                 Pindahkan ke RUSAK
+              </Button>
+            )}
+            {u.status !== "TERJUAL" && (
+              <Button
+                varian="ghost"
+                className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                onClick={() => setHapusUntuk(u)}
+                title="Batalkan unit salah input"
+              >
+                <Trash2 className="h-4 w-4 mr-1.5" /> Batalkan Unit
               </Button>
             )}
           </div>
@@ -316,6 +328,7 @@ export default function HalamanDetailUnit() {
       </div>
 
       <ModalRusak unit={rusakUntuk} onClose={() => setRusakUntuk(null)} />
+      <ModalHapusUnit unit={hapusUntuk} onClose={() => setHapusUntuk(null)} />
       <ModalEditUnit unit={editUntuk} open={!!editUntuk} onClose={() => setEditUntuk(null)} />
     </>
   );

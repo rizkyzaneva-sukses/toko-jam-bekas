@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/prisma";
-import { catatAudit, KesalahanBisnis, withAuth } from "@/lib/api-helpers";
-import { editUnit, hapusUnit } from "@/lib/unit";
+import { catatAudit, KesalahanBisnis, withAuth, withRole } from "@/lib/api-helpers";
+import { editUnit, hapusUnit, periksaDampakHapusUnit } from "@/lib/unit";
 import { namaUnitDariItems } from "@/lib/nama-unit";
 import { selisihHari, toNumber } from "@/lib/utils";
 import type { UnitDetail } from "@/lib/tipe";
@@ -149,9 +149,18 @@ export const PATCH = withAuth<Ctx>(async (req, user, ctx) => {
   return NextResponse.json({ ok: true, id: unit.id, kodeUnit: unit.kodeUnit });
 });
 
-export const DELETE = withAuth<Ctx>(async (_req, user, ctx) => {
+export const DELETE = withRole<Ctx>(["OWNER", "ADMIN"], async (req, user, ctx) => {
   const { id } = await ctx.params;
-  const unit = await hapusUnit(id);
-  await catatAudit(user.id, "DELETE", "Unit", id, { kodeUnit: unit.kodeUnit });
-  return NextResponse.json({ ok: true });
+  const paksa = new URL(req.url).searchParams.get("paksa") === "1";
+
+  const hasil = await hapusUnit(id, paksa);
+  await catatAudit(user.id, "DELETE", "Unit", id, {
+    kodeUnit: hasil.kodeUnit,
+    brand: hasil.brand,
+    model: hasil.model,
+    paksa: hasil.paksa,
+    hpp: hasil.hpp,
+  });
+
+  return NextResponse.json({ ok: true, ...hasil });
 });
