@@ -164,9 +164,10 @@ export function ModalHapusUnit({
           {/* Aman dihapus */}
           {!perluPaksa && !terjual && (
             <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-gray-300">
-              Unit ini masih di antrian <strong>QC</strong> dan belum punya
-              riwayat. Semua jejaknya (kas pembelian + pergerakan stok) akan
-              dibersihkan otomatis, seolah unit ini tidak pernah ada.
+              Unit ini masih boleh dihapus (status{" "}
+              <strong>{dampak.status === "MASUK_QC" ? "belum lewat QC" : "baru lolos QC"}</strong>
+              ). Semua jejaknya (kas pembelian + pergerakan stok + catatan QC)
+              akan dibersihkan otomatis, seolah unit ini tidak pernah ada.
             </div>
           )}
 

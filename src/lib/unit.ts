@@ -464,15 +464,30 @@ export async function periksaDampakHapusUnit(unitId: string): Promise<DampakHapu
   const ledgerLain = u.ledger.filter((l) => l.jenis !== "MASUK_BELI").length;
   const sudahTerjual = !!u.penjualanItem;
 
+  /**
+   * Hapus hanya boleh saat unit masih di alur awal:
+   *   - MASUK_QC  -> baru dibeli, belum lewat QC
+   *   - READY     -> sudah lolos QC, masih di inventory (salah input masih bisa dibatalkan)
+   *
+   * Di luar itu (SERVICE, TERJUAL, dsb) atau sudah ada biaya service &
+   * pergerakan stok lanjutan -> diblokir, pemilik harus beresin dari halaman
+   * terkait (batalkan nota penjualan / selesaikan service) dulu.
+   */
+  const bolehStatus = u.status === "MASUK_QC" || u.status === "READY";
+  const adaBiayaService = u.services.length > 0;
+
   let alasanBlokir: string | null = null;
   if (sudahTerjual) {
     alasanBlokir =
       `Unit ini sudah terjual di nota ${u.penjualanItem!.penjualan.noNota}. ` +
       `Batalkan nota penjualannya dulu, baru unit bisa dihapus.`;
-  } else if (u.status !== "MASUK_QC") {
-    alasanBlokir = `Status unit sekarang ${u.status} — sudah keluar dari antrian QC.`;
-  } else if (ledgerLain > 0) {
-    alasanBlokir = "Unit sudah punya pergerakan stok (QC / service).";
+  } else if (!bolehStatus) {
+    alasanBlokir =
+      `Status unit sekarang ${u.status} — hapus hanya boleh untuk unit yang masih di awal ` +
+      `(belum QC / baru lolos QC).`;
+  } else if (adaBiayaService) {
+    alasanBlokir =
+      "Unit sudah punya riwayat service — selesaikan / batalkan service-nya dulu.";
   }
 
   return {
@@ -541,11 +556,27 @@ export async function hapusUnit(unitId: string, paksa = false) {
     const jejak = await tx.stokLedger.count({
       where: { unitId: unit.id, jenis: { not: "MASUK_BELI" } },
     });
-    const adaRiwayat = unit.status !== "MASUK_QC" || jejak > 0;
 
-    if (adaRiwayat && !paksa) {
+    // Hapus cuma boleh untuk unit yang masih di awal alur.
+    const bolehStatus = unit.status === "MASUK_QC" || unit.status === "READY";
+    if (!bolehStatus) {
       throw new KesalahanBisnis(
-        `Unit ${unit.kodeUnit} sudah punya riwayat (status ${unit.status}). ` +
+        `Unit ${unit.kodeUnit} berstatus ${unit.status} — hapus hanya boleh untuk unit ` +
+          `yang belum lewat QC atau baru lolos QC.`
+      );
+    }
+
+    const jumlahService = await tx.service.count({ where: { unitId: unit.id } });
+    if (jumlahService > 0) {
+      throw new KesalahanBisnis(
+        `Unit ${unit.kodeUnit} sudah punya riwayat service. ` +
+          `Selesaikan atau batalkan service-nya dulu sebelum menghapus unit.`
+      );
+    }
+
+    if (jejak > 0 && !paksa) {
+      throw new KesalahanBisnis(
+        `Unit ${unit.kodeUnit} sudah punya riwayat QC. ` +
           `Kirim ulang dengan mode paksa kalau memang mau dihapus permanen.`
       );
     }
@@ -581,7 +612,7 @@ export async function hapusUnit(unitId: string, paksa = false) {
       brand: unit.brand,
       model: unit.model,
       hpp: toNumber(unit.hargaBeli),
-      paksa: adaRiwayat,
+      paksa,
       sparepartDikembalikan: komponen.filter((k) => k.sparepartId).length,
     };
   });

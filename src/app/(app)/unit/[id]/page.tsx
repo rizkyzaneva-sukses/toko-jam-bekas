@@ -86,12 +86,12 @@ export default function HalamanDetailUnit() {
                 Pindahkan ke RUSAK
               </Button>
             )}
-            {u.status !== "TERJUAL" && (
+            {["MASUK_QC", "READY"].includes(u.status) && (
               <Button
                 varian="ghost"
                 className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                 onClick={() => setHapusUntuk(u)}
-                title="Batalkan unit salah input"
+                title="Batalkan unit salah input (sebelum / baru lolos QC)"
               >
                 <Trash2 className="h-4 w-4 mr-1.5" /> Batalkan Unit
               </Button>
